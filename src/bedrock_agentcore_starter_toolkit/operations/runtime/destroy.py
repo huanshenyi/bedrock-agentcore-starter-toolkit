@@ -186,41 +186,47 @@ def _destroy_ecr_images(
         return
 
     try:
-        ecr_client = session.client("ecr")
+        # Create ECR client with explicit region specification
+        ecr_client = session.client("ecr", region_name=agent_config.aws.region)
         ecr_uri = agent_config.aws.ecr_repository
         
         # Extract repository name from URI
         # Format: account.dkr.ecr.region.amazonaws.com/repo-name
         repo_name = ecr_uri.split("/")[-1]
+        
+        log.info("Checking ECR repository: %s in region: %s", repo_name, agent_config.aws.region)
 
         try:
             # List all images in the repository (both tagged and untagged)
             response = ecr_client.list_images(repositoryName=repo_name)
+            log.debug("ECR list_images response: %s", response)
             
-            all_images = response.get("imageDetails", [])
+            # Fix: use correct response key 'imageIds' instead of 'imageDetails'
+            all_images = response.get("imageIds", [])
             if not all_images:
                 result.warnings.append(f"No images found in ECR repository: {repo_name}")
                 return
 
             if dry_run:
-                tagged_count = len([img for img in all_images if img.get("imageTags")])
-                untagged_count = len([img for img in all_images if not img.get("imageTags")])
+                # Fix: imageIds structure has imageTag (string) not imageTags (array)  
+                tagged_count = len([img for img in all_images if img.get("imageTag")])
+                untagged_count = len([img for img in all_images if not img.get("imageTag")])
                 result.resources_removed.append(
                     f"ECR images in repository {repo_name}: {tagged_count} tagged, {untagged_count} untagged (DRY RUN)"
                 )
                 return
 
-            # Prepare images for deletion - include all images in the agent's repository
+            # Prepare images for deletion - imageIds are already in the correct format
             images_to_delete = []
             
             for image in all_images:
-                # Create image identifier for deletion
+                # imageIds structure already contains the correct identifiers
                 image_id = {}
                 
-                # If image has tags, use the first tag
-                if image.get("imageTags"):
-                    image_id["imageTag"] = image["imageTags"][0]
-                # If no tags, use image digest
+                # If image has a tag, use it
+                if image.get("imageTag"):
+                    image_id["imageTag"] = image["imageTag"]
+                # If no tag, use image digest  
                 elif image.get("imageDigest"):
                     image_id["imageDigest"] = image["imageDigest"]
                 
@@ -284,7 +290,7 @@ def _destroy_codebuild_project(
 ) -> None:
     """Remove CodeBuild project for this agent."""
     try:
-        codebuild_client = session.client("codebuild")
+        codebuild_client = session.client("codebuild", region_name=agent_config.aws.region)
         project_name = f"bedrock-agentcore-{agent_config.name}-builder"
 
         if dry_run:
@@ -320,7 +326,8 @@ def _destroy_iam_role(
         return
 
     try:
-        iam_client = session.client("iam")
+        # Note: IAM is a global service, but we specify region for consistency
+        iam_client = session.client("iam", region_name=agent_config.aws.region)
         role_arn = agent_config.aws.execution_role
         role_name = role_arn.split("/")[-1]
 
