@@ -99,7 +99,7 @@ def _destroy_agentcore_endpoint(
         return
 
     try:
-        client = BedrockAgentCoreClient(session)
+        client = BedrockAgentCoreClient(agent_config.aws.region)
         
         # Get agent details to find endpoint
         agent_id = agent_config.bedrock_agentcore.agent_id
@@ -113,17 +113,21 @@ def _destroy_agentcore_endpoint(
 
         # Try to get and delete endpoint
         try:
-            endpoints = client.list_agent_runtime_endpoints(agent_runtime_arn=agent_config.bedrock_agentcore.agent_arn)
-            for endpoint in endpoints.get("agentRuntimeEndpointSummaries", []):
-                endpoint_arn = endpoint.get("agentRuntimeEndpointArn")
-                if endpoint_arn:
-                    client.delete_agent_runtime_endpoint(agent_runtime_endpoint_arn=endpoint_arn)
-                    result.resources_removed.append(f"AgentCore endpoint: {endpoint_arn}")
-                    log.info("Deleted AgentCore endpoint: %s", endpoint_arn)
+            endpoint_response = client.get_agent_runtime_endpoint(agent_id)
+            endpoint_arn = endpoint_response.get("agentRuntimeEndpointArn")
+            if endpoint_arn:
+                # Note: There's no direct delete endpoint method in the current client
+                # This would need to be implemented if endpoint deletion is supported
+                result.warnings.append(f"Endpoint deletion not implemented yet: {endpoint_arn}")
+                log.warning("Endpoint deletion not implemented yet: %s", endpoint_arn)
+            else:
+                result.warnings.append("No endpoint found for agent")
         except ClientError as e:
             if e.response["Error"]["Code"] not in ["ResourceNotFoundException", "NotFound"]:
-                result.warnings.append(f"Failed to delete endpoint: {e}")
-                log.warning("Failed to delete endpoint: %s", e)
+                result.warnings.append(f"Failed to get endpoint info: {e}")
+                log.warning("Failed to get endpoint info: %s", e)
+            else:
+                result.warnings.append("Endpoint not found or already deleted")
 
     except Exception as e:
         result.warnings.append(f"Error during endpoint destruction: {e}")
@@ -142,8 +146,9 @@ def _destroy_agentcore_agent(
         return
 
     try:
-        client = BedrockAgentCoreClient(session)
+        client = BedrockAgentCoreClient(agent_config.aws.region)
         agent_arn = agent_config.bedrock_agentcore.agent_arn
+        agent_id = agent_config.bedrock_agentcore.agent_id
 
         if dry_run:
             result.resources_removed.append(f"AgentCore agent: {agent_arn} (DRY RUN)")
@@ -151,7 +156,10 @@ def _destroy_agentcore_agent(
 
         # Delete the agent
         try:
-            client.delete_agent_runtime(agent_runtime_arn=agent_arn)
+            # Use the control plane client directly since there's no delete_agent_runtime method
+            # in the BedrockAgentCoreClient class
+            control_client = session.client("bedrock-agentcore-control", region_name=agent_config.aws.region)
+            control_client.delete_agent_runtime(agentRuntimeId=agent_id)
             result.resources_removed.append(f"AgentCore agent: {agent_arn}")
             log.info("Deleted AgentCore agent: %s", agent_arn)
         except ClientError as e:
@@ -185,41 +193,83 @@ def _destroy_ecr_images(
         # Format: account.dkr.ecr.region.amazonaws.com/repo-name
         repo_name = ecr_uri.split("/")[-1]
 
-        if dry_run:
-            result.resources_removed.append(f"ECR images in repository: {repo_name} (DRY RUN)")
-            return
-
         try:
-            # List images with latest tag for this agent
-            response = ecr_client.list_images(
-                repositoryName=repo_name,
-                filter={"tagStatus": "TAGGED"}
-            )
+            # List all images in the repository (both tagged and untagged)
+            response = ecr_client.list_images(repositoryName=repo_name)
             
+            all_images = response.get("imageDetails", [])
+            if not all_images:
+                result.warnings.append(f"No images found in ECR repository: {repo_name}")
+                return
+
+            if dry_run:
+                tagged_count = len([img for img in all_images if img.get("imageTags")])
+                untagged_count = len([img for img in all_images if not img.get("imageTags")])
+                result.resources_removed.append(
+                    f"ECR images in repository {repo_name}: {tagged_count} tagged, {untagged_count} untagged (DRY RUN)"
+                )
+                return
+
+            # Prepare images for deletion - include all images in the agent's repository
             images_to_delete = []
-            for image in response.get("imageDetails", []):
-                # Only delete images tagged as 'latest' or with the agent name
-                tags = image.get("imageTags", [])
-                if "latest" in tags or agent_config.name in tags:
-                    images_to_delete.append({"imageTag": "latest"})
-                    break  # Only delete latest for safety
+            
+            for image in all_images:
+                # Create image identifier for deletion
+                image_id = {}
+                
+                # If image has tags, use the first tag
+                if image.get("imageTags"):
+                    image_id["imageTag"] = image["imageTags"][0]
+                # If no tags, use image digest
+                elif image.get("imageDigest"):
+                    image_id["imageDigest"] = image["imageDigest"]
+                
+                if image_id:
+                    images_to_delete.append(image_id)
 
             if images_to_delete:
-                ecr_client.batch_delete_image(
-                    repositoryName=repo_name,
-                    imageIds=images_to_delete
-                )
-                result.resources_removed.append(f"ECR images: {len(images_to_delete)} images from {repo_name}")
-                log.info("Deleted %d ECR images from %s", len(images_to_delete), repo_name)
+                # Delete images in batches (ECR has a limit of 100 images per batch)
+                batch_size = 100
+                total_deleted = 0
+                
+                for i in range(0, len(images_to_delete), batch_size):
+                    batch = images_to_delete[i:i + batch_size]
+                    
+                    delete_response = ecr_client.batch_delete_image(
+                        repositoryName=repo_name,
+                        imageIds=batch
+                    )
+                    
+                    deleted_images = delete_response.get("imageIds", [])
+                    total_deleted += len(deleted_images)
+                    
+                    # Log any failures in this batch
+                    failures = delete_response.get("failures", [])
+                    for failure in failures:
+                        log.warning("Failed to delete image: %s - %s", 
+                                  failure.get("imageId"), failure.get("failureReason"))
+
+                result.resources_removed.append(f"ECR images: {total_deleted} images from {repo_name}")
+                log.info("Deleted %d ECR images from %s", total_deleted, repo_name)
+                
+                # Log any partial failures
+                if total_deleted < len(images_to_delete):
+                    failed_count = len(images_to_delete) - total_deleted
+                    result.warnings.append(
+                        f"Some ECR images could not be deleted: {failed_count} out of {len(images_to_delete)} failed"
+                    )
             else:
-                result.warnings.append(f"No ECR images found to delete in {repo_name}")
+                result.warnings.append(f"No valid image identifiers found in {repo_name}")
 
         except ClientError as e:
-            if e.response["Error"]["Code"] not in ["RepositoryNotFoundException"]:
+            error_code = e.response["Error"]["Code"]
+            if error_code == "RepositoryNotFoundException":
+                result.warnings.append(f"ECR repository {repo_name} not found")
+            elif error_code == "RepositoryNotEmptyException":
+                result.warnings.append(f"ECR repository {repo_name} could not be deleted (not empty)")
+            else:
                 result.warnings.append(f"Failed to delete ECR images: {e}")
                 log.warning("Failed to delete ECR images: %s", e)
-            else:
-                result.warnings.append(f"ECR repository {repo_name} not found")
 
     except Exception as e:
         result.warnings.append(f"Error during ECR cleanup: {e}")
