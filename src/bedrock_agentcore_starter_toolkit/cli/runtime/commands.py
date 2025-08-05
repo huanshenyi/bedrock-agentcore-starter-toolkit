@@ -752,16 +752,20 @@ def destroy(
     force: bool = typer.Option(
         False, "--force", help="Skip confirmation prompts and destroy immediately"
     ),
+    delete_ecr_repo: bool = typer.Option(
+        False, "--delete-ecr-repo", help="Also delete the ECR repository after removing images"
+    ),
 ) -> None:
     """Destroy Bedrock AgentCore resources.
     
     This command removes the following AWS resources for the specified agent:
     - Bedrock AgentCore endpoint (if exists)
     - Bedrock AgentCore agent runtime
-    - ECR images (latest tag only for safety)
+    - ECR images (all images in the agent's repository)
     - CodeBuild project
     - IAM execution role (only if not used by other agents)
     - Agent deployment configuration
+    - ECR repository (only if --delete-ecr-repo is specified)
     
     CAUTION: This action cannot be undone. Use --dry-run to preview changes first.
     """
@@ -805,6 +809,8 @@ def destroy(
         # Confirmation prompt (unless force or dry_run)
         if not dry_run and not force:
             console.print("[red]This will permanently delete AWS resources and cannot be undone![/red]")
+            if delete_ecr_repo:
+                console.print("[red]This includes deleting the ECR repository itself![/red]")
             response = typer.confirm(
                 f"Are you sure you want to destroy the agent '{actual_agent_name}' and all its resources?"
             )
@@ -819,6 +825,7 @@ def destroy(
                 agent_name=actual_agent_name,
                 dry_run=dry_run,
                 force=force,
+                delete_ecr_repo=delete_ecr_repo,
             )
 
         # Display results
@@ -860,7 +867,10 @@ def destroy(
             console.print("  • Run 'agentcore launch' to deploy to Bedrock AgentCore")
         elif dry_run:
             console.print(f"\n[dim]To actually destroy these resources, run:[/dim]")
-            console.print(f"  agentcore destroy{f' --agent {actual_agent_name}' if agent else ''}")
+            destroy_cmd = f"  agentcore destroy{f' --agent {actual_agent_name}' if agent else ''}"
+            if delete_ecr_repo:
+                destroy_cmd += " --delete-ecr-repo"
+            console.print(destroy_cmd)
 
     except FileNotFoundError:
         console.print("[red].bedrock_agentcore.yaml not found[/red]")

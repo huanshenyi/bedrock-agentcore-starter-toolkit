@@ -21,6 +21,7 @@ def destroy_bedrock_agentcore(
     agent_name: Optional[str] = None,
     dry_run: bool = False,
     force: bool = False,
+    delete_ecr_repo: bool = False,
 ) -> DestroyResult:
     """Destroy Bedrock AgentCore resources.
 
@@ -29,6 +30,7 @@ def destroy_bedrock_agentcore(
         agent_name: Name of the agent to destroy (default: use default agent)
         dry_run: If True, only show what would be destroyed without actually doing it
         force: If True, skip confirmation prompts
+        delete_ecr_repo: If True, also delete the ECR repository after removing images
 
     Returns:
         DestroyResult: Details of what was destroyed or would be destroyed
@@ -38,7 +40,8 @@ def destroy_bedrock_agentcore(
         ValueError: If agent is not found or not deployed
         RuntimeError: If destruction fails
     """
-    log.info("Starting destroy operation for agent: %s (dry_run=%s)", agent_name or "default", dry_run)
+    log.info("Starting destroy operation for agent: %s (dry_run=%s, delete_ecr_repo=%s)", 
+             agent_name or "default", dry_run, delete_ecr_repo)
 
     try:
         # Load configuration
@@ -65,8 +68,8 @@ def destroy_bedrock_agentcore(
         # 2. Destroy Bedrock AgentCore agent
         _destroy_agentcore_agent(session, agent_config, result, dry_run)
         
-        # 3. Remove ECR images (specific tags only)
-        _destroy_ecr_images(session, agent_config, result, dry_run)
+        # 3. Remove ECR images and optionally the repository
+        _destroy_ecr_images(session, agent_config, result, dry_run, delete_ecr_repo)
         
         # 4. Remove CodeBuild project
         _destroy_codebuild_project(session, agent_config, result, dry_run)
@@ -179,8 +182,9 @@ def _destroy_ecr_images(
     agent_config: BedrockAgentCoreAgentSchema,
     result: DestroyResult,
     dry_run: bool,
+    delete_ecr_repo: bool = False,
 ) -> None:
-    """Remove ECR images for this specific agent."""
+    """Remove ECR images and optionally the repository for this specific agent."""
     if not agent_config.aws.ecr_repository:
         result.warnings.append("No ECR repository configured, skipping image cleanup")
         return
@@ -204,7 +208,14 @@ def _destroy_ecr_images(
             # Fix: use correct response key 'imageIds' instead of 'imageDetails'
             all_images = response.get("imageIds", [])
             if not all_images:
-                result.warnings.append(f"No images found in ECR repository: {repo_name}")
+                if delete_ecr_repo:
+                    # Repository exists but is empty, we can delete it
+                    if dry_run:
+                        result.resources_removed.append(f"ECR repository: {repo_name} (empty, DRY RUN)")
+                    else:
+                        _delete_ecr_repository(ecr_client, repo_name, result)
+                else:
+                    result.warnings.append(f"No images found in ECR repository: {repo_name}")
                 return
 
             if dry_run:
@@ -214,6 +225,8 @@ def _destroy_ecr_images(
                 result.resources_removed.append(
                     f"ECR images in repository {repo_name}: {tagged_count} tagged, {untagged_count} untagged (DRY RUN)"
                 )
+                if delete_ecr_repo:
+                    result.resources_removed.append(f"ECR repository: {repo_name} (DRY RUN)")
                 return
 
             # Prepare images for deletion - imageIds are already in the correct format
@@ -264,6 +277,12 @@ def _destroy_ecr_images(
                     result.warnings.append(
                         f"Some ECR images could not be deleted: {failed_count} out of {len(images_to_delete)} failed"
                     )
+                
+                # Delete the repository if requested and all images were deleted successfully
+                if delete_ecr_repo and total_deleted == len(images_to_delete):
+                    _delete_ecr_repository(ecr_client, repo_name, result)
+                elif delete_ecr_repo and total_deleted < len(images_to_delete):
+                    result.warnings.append(f"Cannot delete ECR repository {repo_name}: some images failed to delete")
             else:
                 result.warnings.append(f"No valid image identifiers found in {repo_name}")
 
@@ -280,6 +299,36 @@ def _destroy_ecr_images(
     except Exception as e:
         result.warnings.append(f"Error during ECR cleanup: {e}")
         log.warning("Error during ECR cleanup: %s", e)
+
+
+def _delete_ecr_repository(ecr_client, repo_name: str, result: DestroyResult) -> None:
+    """Delete an ECR repository after ensuring it's empty."""
+    try:
+        # Verify repository is empty before deletion
+        response = ecr_client.list_images(repositoryName=repo_name)
+        remaining_images = response.get("imageIds", [])
+        
+        if remaining_images:
+            result.warnings.append(f"Cannot delete ECR repository {repo_name}: repository is not empty")
+            return
+        
+        # Delete the empty repository
+        ecr_client.delete_repository(repositoryName=repo_name)
+        result.resources_removed.append(f"ECR repository: {repo_name}")
+        log.info("Deleted ECR repository: %s", repo_name)
+        
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        if error_code == "RepositoryNotFoundException":
+            result.warnings.append(f"ECR repository {repo_name} not found (may have been deleted already)")
+        elif error_code == "RepositoryNotEmptyException":
+            result.warnings.append(f"Cannot delete ECR repository {repo_name}: repository is not empty")
+        else:
+            result.warnings.append(f"Failed to delete ECR repository {repo_name}: {e}")
+            log.warning("Failed to delete ECR repository: %s", e)
+    except Exception as e:
+        result.warnings.append(f"Error deleting ECR repository {repo_name}: {e}")
+        log.warning("Error deleting ECR repository: %s", e)
 
 
 def _destroy_codebuild_project(
