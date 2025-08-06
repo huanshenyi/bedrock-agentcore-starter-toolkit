@@ -219,3 +219,23 @@ agentcore gateway create-mcp-gateway-target \
   --gateway-url https://gateway-url.us-west-2.amazonaws.com \
   --role-arn arn:aws:iam::123456789012:role/GatewayRole
 ```
+
+### Importing from Bedrock Agents
+
+```bash
+# Interactive Mode
+agentcore import-agent
+
+# For Automation
+agentcore import-agent \
+  --region us-east-1 \
+  --agent-id ABCD1234 \
+  --agent-alias-id TSTALIASID \
+  --target-platform strands \
+  --output-dir ./my-agent \
+  --deploy-runtime \
+  --run-option runtime
+
+# AgentCore Primitive Opt-out
+agentcore import-agent --disable-gateway --disable-memory --disable-code-interpreter --disable-observability
+```

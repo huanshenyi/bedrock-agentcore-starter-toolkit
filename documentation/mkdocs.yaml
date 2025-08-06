@@ -77,6 +77,10 @@ nav:
       - Permissions: user-guide/runtime/permissions.md
       - Async Processing: user-guide/runtime/async.md
       - Notebook: user-guide/runtime/notebook.md
+    - Import Agent:
+      - Overview: user-guide/import-agent/overview.md
+      - Quickstart: user-guide/import-agent/quickstart.md
+      - Configuration: user-guide/import-agent/configuration.md
     - Gateway:
       - Quickstart: user-guide/gateway/quickstart.md
       - Overview: user-guide/gateway/overview.md

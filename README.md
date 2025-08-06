@@ -84,6 +84,20 @@ agentcore invoke '{"prompt": "Hello from Bedrock AgentCore!"}'
 - 🌐 **Browser** - Fast, secure cloud-based browser for web automation
 - 📊 **Observability** - Real-time monitoring and tracing with OpenTelemetry support
 
+## ➡️ Importing from Bedrock Agents
+
+Import from Bedrock Agents to AgentCore using the `import-agent` utility.
+
+```bash
+# Launch the import-agent workflow
+agentcore import-agent
+```
+
+This will generate an equivalent Langchain or Strands agent in `./output`, leveraging AgentCore primitives, and provide an option to deploy the agent to AgentCore Runtime. See additional documentation on this utility:
+- [Quickstart Guide](https://github.com/aws/bedrock-agentcore-starter-toolkit/blob/main/documentation/docs/user-guide/import-agent/quickstart.md)
+- [Utility Overview](https://github.com/aws/bedrock-agentcore-starter-toolkit/blob/main/documentation/docs/user-guide/import-agent/overview.md)
+
+
 ## 📚 About Amazon Bedrock AgentCore
 
 Amazon Bedrock AgentCore enables you to deploy and operate highly effective agents securely, at scale using any framework and model. With AgentCore, developers can accelerate AI agents into production with enterprise-grade scale, reliability, and security. The platform provides:
