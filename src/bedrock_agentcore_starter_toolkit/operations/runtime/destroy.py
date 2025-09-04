@@ -386,44 +386,39 @@ def _destroy_codebuild_iam_role(
     result: DestroyResult,
     dry_run: bool,
 ) -> None:
-    """Remove all CodeBuild IAM roles with prefix AmazonBedrockAgentCoreSDKCodeBuild*"""
-    role_prefix = "AmazonBedrockAgentCoreSDKCodeBuild"
-    iam = session.client("iam", region_name=agent_config.aws.region)
-
-    if dry_run:
-        result.resources_removed.append(
-            f"DRY RUN: would remove IAM roles starting with '{role_prefix}*'"
-        )
+    """Remove CodeBuild IAM execution role associated with this agent."""
+    if not agent_config.codebuild.execution_role:
+        result.warnings.append("No CodeBuild execution role configured, skipping IAM cleanup")
         return
-
+        
     try:
-        paginator = iam.get_paginator("list_roles")
-        for page in paginator.paginate():
-            for role in page["Roles"]:
-                role_name = role["RoleName"]
-                if not role_name.startswith(role_prefix):
-                    continue
+        # Note: IAM is a global service, but we specify region for consistency
+        iam_client = session.client("iam", region_name=agent_config.aws.region)
+        role_arn = agent_config.codebuild.execution_role
+        role_name = role_arn.split("/")[-1]
+        
+        if dry_run:
+            result.resources_removed.append(f"DRY RUN: would remove CodeBuild IAM role: {role_name}")
+            return
+            
+        # Detach managed policies
+        for policy in iam_client.list_attached_role_policies(RoleName=role_name).get("AttachedPolicies", []):
+            iam_client.detach_role_policy(RoleName=role_name, PolicyArn=policy["PolicyArn"])
+            log.info("Detached policy %s from role %s", policy["PolicyArn"], role_name)
 
-                try:
-                    # Detach managed policies
-                    for policy in iam.list_attached_role_policies(RoleName=role_name).get("AttachedPolicies", []):
-                        iam.detach_role_policy(RoleName=role_name, PolicyArn=policy["PolicyArn"])
-                        log.info("Detached policy %s from role %s", policy["PolicyArn"], role_name)
+        # Delete inline policies
+        for policy_name in iam_client.list_role_policies(RoleName=role_name).get("PolicyNames", []):
+            iam_client.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
+            log.info("Deleted inline policy %s from role %s", policy_name, role_name)
 
-                    # Delete inline policies
-                    for policy_name in iam.list_role_policies(RoleName=role_name).get("PolicyNames", []):
-                        iam.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
-                        log.info("Deleted inline policy %s from role %s", policy_name, role_name)
-
-                    # Delete the role itself
-                    iam.delete_role(RoleName=role_name)
-                    result.resources_removed.append(f"Deleted CodeBuild IAM role: {role_name}")
-                    log.info("Deleted CodeBuild IAM role: %s", role_name)
-
-                except ClientError as e:
-                    result.warnings.append(f"Failed to delete {role_name}: {e}")
-                    log.warning("Failed to delete role %s: %s", role_name, e)
-
+        # Delete the role itself
+        iam_client.delete_role(RoleName=role_name)
+        result.resources_removed.append(f"Deleted CodeBuild IAM role: {role_name}")
+        log.info("Deleted CodeBuild IAM role: %s", role_name)
+        
+    except ClientError as e:
+        result.warnings.append(f"Failed to delete CodeBuild role {role_name}: {e}")
+        log.warning("Failed to delete CodeBuild role %s: %s", role_name, e)
     except Exception as e:
         result.warnings.append(f"Error during CodeBuild IAM role cleanup: {e}")
         log.error("Error during CodeBuild IAM role cleanup: %s", e)
