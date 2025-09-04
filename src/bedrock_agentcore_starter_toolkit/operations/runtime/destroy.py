@@ -1,9 +1,8 @@
 """Destroy operation - removes Bedrock AgentCore resources from AWS."""
 
-import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -119,10 +118,17 @@ def _destroy_agentcore_endpoint(
             endpoint_response = client.get_agent_runtime_endpoint(agent_id)
             endpoint_arn = endpoint_response.get("agentRuntimeEndpointArn")
             if endpoint_arn:
-                # Note: There's no direct delete endpoint method in the current client
-                # This would need to be implemented if endpoint deletion is supported
-                result.warnings.append(f"Endpoint deletion not implemented yet: {endpoint_arn}")
-                log.warning("Endpoint deletion not implemented yet: %s", endpoint_arn)
+                # Delete the endpoint using the new method
+                try:
+                    client.delete_agent_runtime_endpoint(agent_id)
+                    result.resources_removed.append(f"AgentCore endpoint: {endpoint_arn}")
+                    log.info("Deleted AgentCore endpoint: %s", endpoint_arn)
+                except ClientError as delete_error:
+                    if delete_error.response["Error"]["Code"] not in ["ResourceNotFoundException", "NotFound"]:
+                        result.errors.append(f"Failed to delete endpoint {endpoint_arn}: {delete_error}")
+                        log.error("Failed to delete endpoint: %s", delete_error)
+                    else:
+                        result.warnings.append("Endpoint not found or already deleted during deletion")
             else:
                 result.warnings.append("No endpoint found for agent")
         except ClientError as e:
