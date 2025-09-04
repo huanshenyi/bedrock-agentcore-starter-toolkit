@@ -72,11 +72,14 @@ def destroy_bedrock_agentcore(
         
         # 4. Remove CodeBuild project
         _destroy_codebuild_project(session, agent_config, result, dry_run)
+
+        # 5. Remove CodeBuild IAM Role
+        _destroy_codebuild_iam_role(session, agent_config, result, dry_run)
         
-        # 5. Remove IAM execution role (if not used by other agents)
+        # 6. Remove IAM execution role (if not used by other agents)
         _destroy_iam_role(session, project_config, agent_config, result, dry_run)
         
-        # 6. Clean up configuration
+        # 7. Clean up configuration
         if not dry_run and not result.errors:
             _cleanup_agent_config(config_path, project_config, agent_config.name, result)
 
@@ -103,24 +106,33 @@ def _destroy_agentcore_endpoint(
     try:
         client = BedrockAgentCoreClient(agent_config.aws.region)
         
-        # Get agent details to find endpoint
         agent_id = agent_config.bedrock_agentcore.agent_id
         if not agent_id:
             result.warnings.append("No agent ID found, skipping endpoint destruction")
             return
 
-        if dry_run:
-            result.resources_removed.append(f"AgentCore endpoint for agent {agent_id} (DRY RUN)")
-            return
-
-        # Try to get and delete endpoint
+        # Get actual endpoint details to determine endpoint name
         try:
             endpoint_response = client.get_agent_runtime_endpoint(agent_id)
+            endpoint_name = endpoint_response.get("name", "DEFAULT")
             endpoint_arn = endpoint_response.get("agentRuntimeEndpointArn")
+            
+            # Special case: DEFAULT endpoint cannot be explicitly deleted
+            if endpoint_name == "DEFAULT":
+                result.warnings.append(
+                    "DEFAULT endpoint cannot be explicitly deleted, skipping"
+                )
+                log.info("Skipping deletion of DEFAULT endpoint")
+                return
+
+            if dry_run:
+                result.resources_removed.append(f"AgentCore endpoint: {endpoint_name} (DRY RUN)")
+                return
+
+            # Delete the endpoint
             if endpoint_arn:
-                # Delete the endpoint using the new method
                 try:
-                    client.delete_agent_runtime_endpoint(agent_id)
+                    client.delete_agent_runtime_endpoint(agent_id, endpoint_name)
                     result.resources_removed.append(f"AgentCore endpoint: {endpoint_arn}")
                     log.info("Deleted AgentCore endpoint: %s", endpoint_arn)
                 except ClientError as delete_error:
@@ -130,7 +142,8 @@ def _destroy_agentcore_endpoint(
                     else:
                         result.warnings.append("Endpoint not found or already deleted during deletion")
             else:
-                result.warnings.append("No endpoint found for agent")
+                result.warnings.append("No endpoint ARN found for agent")
+                
         except ClientError as e:
             if e.response["Error"]["Code"] not in ["ResourceNotFoundException", "NotFound"]:
                 result.warnings.append(f"Failed to get endpoint info: {e}")
@@ -367,6 +380,53 @@ def _destroy_codebuild_project(
         result.warnings.append(f"Error during CodeBuild cleanup: {e}")
         log.warning("Error during CodeBuild cleanup: %s", e)
 
+def _destroy_codebuild_iam_role(
+    session: boto3.Session,
+    agent_config: BedrockAgentCoreAgentSchema,
+    result: DestroyResult,
+    dry_run: bool,
+) -> None:
+    """Remove all CodeBuild IAM roles with prefix AmazonBedrockAgentCoreSDKCodeBuild*"""
+    role_prefix = "AmazonBedrockAgentCoreSDKCodeBuild"
+    iam = session.client("iam", region_name=agent_config.aws.region)
+
+    if dry_run:
+        result.resources_removed.append(
+            f"DRY RUN: would remove IAM roles starting with '{role_prefix}*'"
+        )
+        return
+
+    try:
+        paginator = iam.get_paginator("list_roles")
+        for page in paginator.paginate():
+            for role in page["Roles"]:
+                role_name = role["RoleName"]
+                if not role_name.startswith(role_prefix):
+                    continue
+
+                try:
+                    # Detach managed policies
+                    for policy in iam.list_attached_role_policies(RoleName=role_name).get("AttachedPolicies", []):
+                        iam.detach_role_policy(RoleName=role_name, PolicyArn=policy["PolicyArn"])
+                        log.info("Detached policy %s from role %s", policy["PolicyArn"], role_name)
+
+                    # Delete inline policies
+                    for policy_name in iam.list_role_policies(RoleName=role_name).get("PolicyNames", []):
+                        iam.delete_role_policy(RoleName=role_name, PolicyName=policy_name)
+                        log.info("Deleted inline policy %s from role %s", policy_name, role_name)
+
+                    # Delete the role itself
+                    iam.delete_role(RoleName=role_name)
+                    result.resources_removed.append(f"Deleted CodeBuild IAM role: {role_name}")
+                    log.info("Deleted CodeBuild IAM role: %s", role_name)
+
+                except ClientError as e:
+                    result.warnings.append(f"Failed to delete {role_name}: {e}")
+                    log.warning("Failed to delete role %s: %s", role_name, e)
+
+    except Exception as e:
+        result.warnings.append(f"Error during CodeBuild IAM role cleanup: {e}")
+        log.error("Error during CodeBuild IAM role cleanup: %s", e)
 
 def _destroy_iam_role(
     session: boto3.Session,
