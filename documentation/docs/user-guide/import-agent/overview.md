@@ -7,12 +7,18 @@ The `import-agent` utility enables you to migrate existing Amazon Bedrock Agents
 > Review the generated code, evaluate agent behavior, and make necessary changes before deploying.
 > Extend the agent with additional tools, memory, and other features as required.
 
+> **Note**
+> Use the output agent definition as a starting point for your custom agent implementation.
+> Review the generated code, evaluate agent behavior, and make necessary changes before deploying.
+> Extend the agent with additional tools, memory, and other features as required.
+
 ## What is Import Agent?
 
 The import-agent utility automates the process of:
 
 1. **Fetching** your existing Bedrock Agent configuration
 2. **Converting** it to LangChain/LangGraph or Strands framework code
+3. **Integrating** AgentCore primitives (Memory, Code Interpreter, Observability, Gateway)
 3. **Integrating** AgentCore primitives (Memory, Code Interpreter, Observability, Gateway)
 4. **Deploying** to AgentCore Runtime (optional)
 
@@ -34,7 +40,7 @@ Ideal for teams wanting AWS-native agent development with streamlined patterns.
 
 ## Generated Output
 
-The utility generates a SUPPORTED agent implementation including:
+The utility generates an agent implementation including:
 
 - **Agent Code**: Framework-specific implementation of your Bedrock Agent
 - **Dependencies**: All required packages and versions
@@ -91,4 +97,5 @@ flowchart TD
 
 - [Quick Start Guide](quickstart.md) - Get started in 5 minutes
 - [Configuration Reference](configuration.md) - Detailed parameter guide
+- [Design Choices](design.md) - Details on the design of the generated agent
 - [Design Choices](design.md) - Details on the design of the generated agent

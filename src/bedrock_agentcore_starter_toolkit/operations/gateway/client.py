@@ -84,6 +84,7 @@ class GatewayClient:
             "protocolType": "MCP",
             "authorizerType": "CUSTOM_JWT",
             "authorizerConfiguration": authorizer_config,
+            "exceptionLevel": "DEBUG",
         }
         if enable_semantic_search:
             create_request["protocolConfiguration"] = {"mcp": {"searchType": "SEMANTIC"}}

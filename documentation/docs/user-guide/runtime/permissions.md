@@ -53,14 +53,6 @@ agentcore configure -e my_agent.py
 agentcore launch
 ```
 
-**Mixed Approach:**
-```bash
-# Auto-create execution role, use existing ECR
-agentcore configure -e my_agent.py -ecr my-existing-repo
-```
-
-> **💡 Recommendation**: Use auto-creation for development and testing. For production deployments, consider using Infrastrcuture as Code semantics.
-
 ## Developer/Caller Permissions
 
 ### Overview
@@ -149,7 +141,9 @@ Attach the following policy to your IAM user or role:
 			"Action": [
 				"s3:GetObject",
 				"s3:PutObject",
-				"s3:ListBucket"
+				"s3:ListBucket",
+				"s3:CreateBucket",
+				"s3:PutLifecycleConfiguration"
 			],
 			"Resource": [
 				"arn:aws:s3:::bedrock-agentcore-*",
@@ -192,7 +186,7 @@ Attach the following policy to your IAM user or role:
 ### Additional Required Permissions
 
 You also need:
-- **AgentCore Full Access**: `AmazonBedrockAgentCoreFullAccess` managed policy
+- **AgentCore Full Access**: `BedrockAgentCoreFullAccess` managed policy
 - **Bedrock Access** (one of the following):
   - **Option 1 (Development)**: `AmazonBedrockFullAccess` managed policy
   - **Option 2 (Production Recommended)**: Custom policy with scoped permissions for specific models and actions

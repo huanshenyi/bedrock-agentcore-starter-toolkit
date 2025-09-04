@@ -9,7 +9,7 @@ Before starting, make sure you have:
 - **AWS Account** with credentials configured (`aws configure`)
 - **Python 3.10+** installed
 - **AWS Permissions**:
-  - `AmazonBedrockAgentCoreFullAccess` managed policy
+  - `BedrockAgentCoreFullAccess` managed policy
   - `AmazonBedrockFullAccess` managed policy
   - **Caller permissions**: [See detailed policy here](permissions.md#developercaller-permissions)
 - **Model Access**: Anthropic Claude 4.0 enabled in [Amazon Bedrock console](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access-modify.html)

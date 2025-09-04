@@ -1,7 +1,6 @@
 """Tests for Bedrock AgentCore CodeBuild service integration."""
 
 import json
-from datetime import timezone
 from unittest.mock import Mock, mock_open, patch
 
 import pytest
@@ -138,14 +137,10 @@ class TestCodeBuildService:
         mock_zip = Mock()
         mock_zipfile.return_value.__enter__.return_value = mock_zip
 
-        # Mock datetime for consistent timestamp
-        with patch("bedrock_agentcore_starter_toolkit.services.codebuild.datetime") as mock_dt:
-            mock_dt.now.return_value.strftime.return_value = "20250718-083000"
-            mock_dt.timezone = timezone
+        # Test with fixed source.zip naming (no timestamp needed)
+        result = codebuild_service.upload_source("test-agent")
 
-            result = codebuild_service.upload_source("test-agent")
-
-        expected_key = "test-agent/20250718-083000.zip"
+        expected_key = "test-agent/source.zip"
         expected_s3_url = f"s3://bedrock-agentcore-codebuild-sources-123456789012-us-west-2/{expected_key}"
 
         assert result == expected_s3_url
@@ -281,14 +276,36 @@ class TestCodeBuildService:
                 codebuild_service.wait_for_completion("test-build-id", timeout=1)
 
     def test_get_arm64_buildspec(self, codebuild_service):
-        """Test ARM64 buildspec generation."""
+        """Test ARM64 buildspec generation - native build with parallel ECR auth."""
         buildspec = codebuild_service._get_arm64_buildspec("test-ecr-uri")
 
         assert "version: 0.2" in buildspec
-        assert "linux/arm64" in buildspec
         assert "test-ecr-uri" in buildspec
-        assert "DOCKER_BUILDKIT=1" in buildspec
-        assert "docker buildx build" in buildspec
+
+        # Verify native Docker build (no buildx)
+        assert "docker build -t bedrock-agentcore-arm64 ." in buildspec
+        assert "docker buildx build" not in buildspec
+        assert "linux/arm64" not in buildspec
+
+        # Verify parallel operations with multi-line shell block
+        assert "Starting parallel Docker build and ECR authentication..." in buildspec
+        assert "- |" in buildspec  # Multi-line block syntax
+        assert "docker build -t bedrock-agentcore-arm64 . &" in buildspec
+        assert "BUILD_PID=$!" in buildspec
+        assert "aws ecr get-login-password" in buildspec
+        assert "AUTH_PID=$!" in buildspec
+
+        # Verify explicit error handling
+        assert "wait $BUILD_PID" in buildspec
+        assert "if [ $? -ne 0 ]; then" in buildspec
+        assert "Docker build failed" in buildspec
+        assert "wait $AUTH_PID" in buildspec
+        assert "ECR authentication failed" in buildspec
+        assert "Both build and auth completed successfully" in buildspec
+
+        # Verify final steps
+        assert "Tagging image..." in buildspec
+        assert "docker tag bedrock-agentcore-arm64:latest" in buildspec
 
     def test_parse_dockerignore_existing_file(self, codebuild_service):
         """Test parsing existing .dockerignore file."""
@@ -394,12 +411,8 @@ node_modules
             mock_zip = Mock()
             mock_zipfile.return_value.__enter__.return_value = mock_zip
 
-            # Mock datetime
-            with patch("bedrock_agentcore_starter_toolkit.services.codebuild.datetime") as mock_dt:
-                mock_dt.now.return_value.strftime.return_value = "20250718-083000"
-                mock_dt.timezone = timezone
-
-                codebuild_service.upload_source("test-agent")
+            # Test with fixed source.zip naming
+            codebuild_service.upload_source("test-agent")
 
             # Verify correct files were included/excluded
             zip_calls = mock_zip.write.call_args_list
@@ -454,12 +467,8 @@ node_modules
             mock_zip = Mock()
             mock_zipfile.return_value.__enter__.return_value = mock_zip
 
-            # Mock datetime
-            with patch("bedrock_agentcore_starter_toolkit.services.codebuild.datetime") as mock_dt:
-                mock_dt.now.return_value.strftime.return_value = "20250718-083000"
-                mock_dt.timezone = timezone
-
-                codebuild_service.upload_source("test-agent")
+            # Test with fixed source.zip naming
+            codebuild_service.upload_source("test-agent")
 
             # Verify only non-ignored files were added to zip
             zip_calls = mock_zip.write.call_args_list
@@ -487,7 +496,7 @@ node_modules
 
         assert call_args["environment"]["type"] == "ARM_CONTAINER"
         assert call_args["environment"]["image"] == "aws/codebuild/amazonlinux2-aarch64-standard:3.0"
-        assert call_args["environment"]["computeType"] == "BUILD_GENERAL1_LARGE"
+        assert call_args["environment"]["computeType"] == "BUILD_GENERAL1_MEDIUM"
         assert call_args["environment"]["privilegedMode"] is True
 
     def test_iam_role_permissions(self, codebuild_service, mock_clients):

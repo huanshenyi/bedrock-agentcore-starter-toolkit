@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 
 import boto3
 import requests
+from botocore.config import Config
 from botocore.exceptions import ClientError
 from rich.console import Console
 
@@ -93,8 +94,18 @@ class BedrockAgentCoreClient:
         self.logger.debug("Control plane: %s", control_plane_url)
         self.logger.debug("Data plane: %s", data_plane_url)
 
-        self.client = boto3.client("bedrock-agentcore-control", region_name=region, endpoint_url=control_plane_url)
-        self.dataplane_client = boto3.client("bedrock-agentcore", region_name=region, endpoint_url=data_plane_url)
+        config = Config(
+            read_timeout=900,
+            connect_timeout=60,
+            retries={"max_attempts": 3},
+        )
+
+        self.client = boto3.client(
+            "bedrock-agentcore-control", region_name=region, endpoint_url=control_plane_url, config=config
+        )
+        self.dataplane_client = boto3.client(
+            "bedrock-agentcore", region_name=region, endpoint_url=data_plane_url, config=config
+        )
 
     def create_agent(
         self,
@@ -332,7 +343,7 @@ class BedrockAgentCoreClient:
             except Exception as e:
                 if "ResourceNotFoundException" not in str(e):
                     raise
-            time.sleep(2)
+            time.sleep(1)
         return (
             f"Endpoint is taking longer than {max_wait} seconds to be ready, "
             f"please check status and try to invoke after some time"

@@ -6,7 +6,6 @@ import os
 import tempfile
 import time
 import zipfile
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
@@ -99,9 +98,8 @@ class CodeBuildService:
                             file_path = Path(root) / file
                             zipf.write(file_path, file_rel_path)
 
-                # Create agent-organized S3 key: agentname/timestamp.zip
-                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-                s3_key = f"{agent_name}/{timestamp}.zip"
+                # Create agent-organized S3 key: agentname/source.zip (fixed naming for cache consistency)
+                s3_key = f"{agent_name}/source.zip"
 
                 self.s3_client.upload_file(temp_zip.name, bucket_name, s3_key)
 
@@ -109,6 +107,7 @@ class CodeBuildService:
                 return f"s3://{bucket_name}/{s3_key}"
 
             finally:
+                temp_zip.close()
                 os.unlink(temp_zip.name)
 
     def _normalize_s3_location(self, source_location: str) -> str:
@@ -151,7 +150,7 @@ class CodeBuildService:
             "environment": {
                 "type": "ARM_CONTAINER",  # ARM64 images require ARM_CONTAINER environment type
                 "image": "aws/codebuild/amazonlinux2-aarch64-standard:3.0",
-                "computeType": "BUILD_GENERAL1_LARGE",  # 4 vCPUs, 7GB RAM for faster builds
+                "computeType": "BUILD_GENERAL1_MEDIUM",  # 4 vCPUs, 7GB RAM - optimal for I/O workloads
                 "privilegedMode": True,  # Required for Docker
             },
             "serviceRole": execution_role,
@@ -227,37 +226,46 @@ class CodeBuildService:
                     self.logger.error("❌ Build failed during %s phase", current_phase)
                 raise RuntimeError(f"CodeBuild failed with status: {status}")
 
-            time.sleep(5)
+            time.sleep(1)
 
         total_duration = time.time() - build_start_time
         minutes, seconds = divmod(int(total_duration), 60)
         raise TimeoutError(f"CodeBuild timed out after {minutes}m {seconds}s (current phase: {current_phase})")
 
     def _get_arm64_buildspec(self, ecr_repository_uri: str) -> str:
-        """Get optimized buildspec for ARM64 Docker."""
+        """Get optimized buildspec with parallel ECR authentication."""
         return f"""
 version: 0.2
 phases:
-  pre_build:
-    commands:
-      - echo Logging in to Amazon ECR...
-      - aws ecr get-login-password --region $AWS_DEFAULT_REGION |
-        docker login --username AWS --password-stdin {ecr_repository_uri}
-      - export DOCKER_BUILDKIT=1
-      - export BUILDKIT_PROGRESS=plain
   build:
     commands:
-      - echo Build started on `date`
-      - echo Building ARM64 Docker image with BuildKit processing...
-      - export DOCKER_BUILDKIT=1
-      - docker buildx create --name arm64builder --use || true
-      - docker buildx build --platform linux/arm64 --load -t bedrock-agentcore-arm64 .
+      - echo "Starting parallel Docker build and ECR authentication..."
+      - |
+        docker build -t bedrock-agentcore-arm64 . &
+        BUILD_PID=$!
+        aws ecr get-login-password --region $AWS_DEFAULT_REGION | \\
+        docker login --username AWS --password-stdin {ecr_repository_uri} &
+        AUTH_PID=$!
+        echo "Waiting for Docker build to complete..."
+        wait $BUILD_PID
+        if [ $? -ne 0 ]; then
+          echo "Docker build failed"
+          exit 1
+        fi
+        echo "Waiting for ECR authentication to complete..."
+        wait $AUTH_PID
+        if [ $? -ne 0 ]; then
+          echo "ECR authentication failed"
+          exit 1
+        fi
+        echo "Both build and auth completed successfully"
+      - echo "Tagging image..."
       - docker tag bedrock-agentcore-arm64:latest {ecr_repository_uri}:latest
   post_build:
     commands:
-      - echo Build completed on `date`
-      - echo Pushing ARM64 image to ECR...
+      - echo "Pushing ARM64 image to ECR..."
       - docker push {ecr_repository_uri}:latest
+      - echo "Build completed at $(date)"
 """
 
     def _parse_dockerignore(self) -> List[str]:

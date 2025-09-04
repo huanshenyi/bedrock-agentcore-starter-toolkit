@@ -70,7 +70,71 @@
       }
     },
     {
-      "Sid": "GetAgentAccessToken",
+      "Sid": "BedrockAgentCoreRuntime",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:InvokeAgentRuntime"
+      ],
+      "Resource": [
+        "arn:aws:bedrock-agentcore:{{ region }}:{{ account_id }}:runtime/*"
+      ]
+    },
+    {
+      "Sid": "BedrockAgentCoreMemoryCreateMemory",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:CreateMemory"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BedrockAgentCoreMemory",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:CreateEvent",
+        "bedrock-agentcore:GetEvent",
+        "bedrock-agentcore:GetMemory",
+        "bedrock-agentcore:GetMemoryRecord",
+        "bedrock-agentcore:ListActors",
+        "bedrock-agentcore:ListEvents",
+        "bedrock-agentcore:ListMemoryRecords",
+        "bedrock-agentcore:ListSessions",
+        "bedrock-agentcore:DeleteEvent",
+        "bedrock-agentcore:DeleteMemoryRecord",
+        "bedrock-agentcore:RetrieveMemoryRecords"
+      ],
+      "Resource": [
+        "arn:aws:bedrock-agentcore:{{ region }}:{{ account_id }}:memory/*"
+      ]
+    },
+    {
+      "Sid": "BedrockAgentCoreIdentityGetResourceApiKey",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:GetResourceApiKey"
+      ],
+      "Resource": [
+        "arn:aws:bedrock-agentcore:{{ region }}:{{ account_id }}:token-vault/default",
+        "arn:aws:bedrock-agentcore:{{ region }}:{{ account_id }}:token-vault/default/apikeycredentialprovider/*",
+        "arn:aws:bedrock-agentcore:{{ region }}:{{ account_id }}:workload-identity-directory/default",
+        "arn:aws:bedrock-agentcore:{{ region }}:{{ account_id }}:workload-identity-directory/default/workload-identity/{{ agent_name }}-*"
+      ]
+    },
+    {
+      "Sid": "BedrockAgentCoreIdentityGetResourceOauth2Token",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:GetResourceOauth2Token"
+      ],
+      "Resource": [
+        "arn:aws:bedrock-agentcore:{{ region }}:{{ account_id }}:token-vault/default",
+        "arn:aws:bedrock-agentcore:{{ region }}:{{ account_id }}:token-vault/default/oauth2credentialprovider/*",
+        "arn:aws:bedrock-agentcore:{{ region }}:{{ account_id }}:workload-identity-directory/default",
+        "arn:aws:bedrock-agentcore:{{ region }}:{{ account_id }}:workload-identity-directory/default/workload-identity/{{ agent_name }}-*"
+      ]
+    },
+    {
+      "Sid": "BedrockAgentCoreIdentityGetWorkloadAccessToken",
       "Effect": "Allow",
       "Action": [
         "bedrock-agentcore:GetWorkloadAccessToken",

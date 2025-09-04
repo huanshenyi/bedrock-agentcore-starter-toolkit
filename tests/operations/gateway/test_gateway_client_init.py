@@ -164,6 +164,7 @@ class TestCreateMCPGateway:
                 "authorizerType": "CUSTOM_JWT",
                 "authorizerConfiguration": authorizer_config,
                 "protocolConfiguration": {"mcp": {"searchType": "SEMANTIC"}},
+                "exceptionLevel": "DEBUG",
             }
             self.client.client.create_gateway.assert_called_once_with(**expected_request)
 
