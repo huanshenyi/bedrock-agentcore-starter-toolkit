@@ -398,7 +398,7 @@ def _destroy_codebuild_iam_role(
         role_name = role_arn.split("/")[-1]
         
         if dry_run:
-            result.resources_removed.append(f"DRY RUN: would remove CodeBuild IAM role: {role_name}")
+            result.resources_removed.append(f"CodeBuild IAM role: {role_name} (DRY RUN)")
             return
             
         # Detach managed policies
@@ -502,17 +502,40 @@ def _cleanup_agent_config(
 ) -> None:
     """Remove agent configuration from the config file."""
     try:
-        # Clear the bedrock_agentcore deployment info but keep the agent config
-        if agent_name in project_config.agents:
-            agent_config = project_config.agents[agent_name]
-            agent_config.bedrock_agentcore = None
-            
+        if agent_name not in project_config.agents:
+            result.warnings.append(f"Agent {agent_name} not found in configuration")
+            return
+
+        # Check if this agent is the default agent
+        was_default = project_config.default_agent == agent_name
+        
+        # Remove the agent entry completely
+        del project_config.agents[agent_name]
+        result.resources_removed.append(f"Agent configuration: {agent_name}")
+        log.info("Removed agent configuration: %s", agent_name)
+        
+        # Handle default agent cleanup
+        if was_default:
+            if project_config.agents:
+                # Set default to the first remaining agent
+                new_default = list(project_config.agents.keys())[0]
+                project_config.default_agent = new_default
+                result.resources_removed.append(f"Default agent updated to: {new_default}")
+                log.info("Updated default agent from '%s' to '%s'", agent_name, new_default)
+            else:
+                # No agents left, clear default
+                project_config.default_agent = None
+                log.info("Cleared default agent (no agents remaining)")
+        
+        # If no agents remain, remove the config file
+        if not project_config.agents:
+            config_path.unlink()
+            result.resources_removed.append("Configuration file (no agents remaining)")
+            log.info("Removed configuration file: %s", config_path)
+        else:
             # Save updated configuration
             save_config(project_config, config_path)
-            result.resources_removed.append(f"Agent deployment configuration: {agent_name}")
-            log.info("Cleared deployment configuration for agent: %s", agent_name)
-        else:
-            result.warnings.append(f"Agent {agent_name} not found in configuration")
+            log.info("Updated configuration file")
 
     except Exception as e:
         result.warnings.append(f"Failed to update configuration: {e}")
