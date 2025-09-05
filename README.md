@@ -40,35 +40,6 @@ AgentCore Runtime is a secure, serverless runtime purpose-built for deploying an
 ## 🧠 Amazon Bedrock AgentCore Memory
 AgentCore Memory makes it easy for developers to build context aware agents by eliminating complex memory infrastructure management while providing full control over what the AI agent remembers. Memory provides industry-leading accuracy along with support for both short-term memory for multi-turn conversations and long-term memory that can be shared across agents and sessions.
 
-```bash
-# Deploy with the Starter Toolkit
-agentcore configure --entrypoint my_agent.py
-agentcore launch  # Ready to run on Bedrock AgentCore
-agentcore invoke '{"prompt": "tell me a fact"}'
-agentcore destroy
-```
-
-**What you get with the Starter Toolkit:**
-
-- ✅ **Keep your agent logic** - Works with any SDK-built agent
-- ✅ **Zero infrastructure management** - No servers, containers, or scaling concerns
-- ✅ **One-command deployment** - From local development to enterprise platform
-- ✅ **Production-ready hosting** - Reliable, scalable, compliant Bedrock AgentCore deployment
-
-## 🛠️ Deployment & Management Tools
-
-**Simple Configuration**
-
-```bash
-# Configure your agent for deployment
-agentcore configure --entrypoint my_agent.py --name my-production-agent
-
-# Check deployment status
-agentcore status
-
-# Invoke your deployed agent
-agentcore invoke '{"prompt": "Hello from Bedrock AgentCore!"}'
-```
 
 **[Memory Quick Start](https://aws.github.io/bedrock-agentcore-starter-toolkit/user-guide/memory/quickstart.html)**
 
@@ -102,27 +73,6 @@ AgentCore Import-Agent enables seamless migration of existing Amazon Bedrock Age
 
 **[Import Agent Quick Start](https://aws.github.io/bedrock-agentcore-starter-toolkit/user-guide/import-agent/quickstart.html)**
 
-## ➡️ Importing from Bedrock Agents
-
-Import from Bedrock Agents to AgentCore using the `import-agent` utility.
-
-```bash
-# Launch the import-agent workflow
-agentcore import-agent
-```
-
-This will generate an equivalent Langchain or Strands agent in `./output`, leveraging AgentCore primitives, and provide an option to deploy the agent to AgentCore Runtime. See additional documentation on this utility:
-- [Quickstart Guide](https://github.com/aws/bedrock-agentcore-starter-toolkit/blob/main/documentation/docs/user-guide/import-agent/quickstart.md)
-- [Utility Overview](https://github.com/aws/bedrock-agentcore-starter-toolkit/blob/main/documentation/docs/user-guide/import-agent/overview.md)
-
-## 📚 About Amazon Bedrock AgentCore
-
-Amazon Bedrock AgentCore enables you to deploy and operate highly effective agents securely, at scale using any framework and model. With AgentCore, developers can accelerate AI agents into production with enterprise-grade scale, reliability, and security. The platform provides:
-
-- **Composable Services**: Mix and match services to fit your needs
-- **Framework Flexibility**: Works with Strands, LangGraph, CrewAI, Strands, and more
-- **Any Model Support**: Not locked into specific models
-- **Enterprise Security**: Built-in identity, isolation, and access controls
 
 ## ⚠️ Preview Status
 
