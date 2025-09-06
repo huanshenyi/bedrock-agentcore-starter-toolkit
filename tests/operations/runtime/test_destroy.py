@@ -359,14 +359,12 @@ class TestDestroyBedrockAgentCore:
             
             result = destroy_bedrock_agentcore(config_path, dry_run=False)
         
-        # Verify configuration was updated by checking YAML directly
-        import yaml
-        with open(config_path, "r") as f:
-            data = yaml.safe_load(f)
+        # When the last agent is destroyed, the entire config file should be removed
+        assert not config_path.exists(), "Configuration file should be deleted when no agents remain"
         
-        # Check that bedrock_agentcore deployment info was cleared
-        assert data["agents"]["test-agent"]["bedrock_agentcore"] is None
-        assert "Agent deployment configuration: test-agent" in result.resources_removed
+        # Verify that the agent configuration and file removal are tracked in results
+        assert "Agent configuration: test-agent" in result.resources_removed
+        assert "Configuration file (no agents remaining)" in result.resources_removed
 
 
 class TestDestroyHelpers:
