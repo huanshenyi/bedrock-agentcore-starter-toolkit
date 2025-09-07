@@ -1060,6 +1060,9 @@ class BaseBedrockTranslator:
         )
         response_content_code = "str(agent_result)" if platform == "strands" else "agent_result[-1].content"
 
+        # Define regex patterns outside f-string to avoid escape sequence warnings
+        url_pattern = r'(?:https?://|www\.)(?:[a-zA-Z0-9\-]+\.)+[a-zA-Z]{{2,}}(?:/[^/\s]*)*'
+        
         entrypoint_code += f"""
     def endpoint(payload, context):
         try:
@@ -1079,7 +1082,7 @@ class BaseBedrockTranslator:
 
             # Gathering sources from the response
             sources = []
-            urls = re.findall(r'(?:https?://|www\.)(?:[a-zA-Z0-9\-]+\.)+[a-zA-Z]{{2,}}(?:/[^/\s]*)*', response_content)
+            urls = re.findall(r'{url_pattern}', response_content)
             source_tags = re.findall(r"<source>(.*?)</source>", response_content)
             sources.extend(urls)
             sources.extend(source_tags)
