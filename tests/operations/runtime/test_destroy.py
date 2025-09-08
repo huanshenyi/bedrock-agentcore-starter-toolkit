@@ -2183,6 +2183,66 @@ class TestDestroyHelpers:
         assert "AccessDenied" in result.warnings[0]
         assert len(result.errors) == 0
 
+    def test_destroy_additional_coverage_test(self, tmp_path):
+        """Additional test to improve destroy.py test coverage."""
+        config_path = create_undeployed_config(tmp_path, "coverage-test-agent")
+        
+        result = destroy_bedrock_agentcore(config_path, agent_name="coverage-test-agent", dry_run=True)
+        
+        assert isinstance(result, DestroyResult)
+        assert result.agent_name == "coverage-test-agent"
+        # This test helps improve overall test coverage of the destroy module
+        assert result.dry_run is True
+
+    @patch("bedrock_agentcore_starter_toolkit.operations.runtime.destroy.BedrockAgentCoreClient")
+    @patch("boto3.Session")
+    def test_destroy_iam_role_non_nosuchentity_error_coverage(self, mock_session, mock_client_class, tmp_path):
+        """Test IAM role deletion with non-NoSuchEntity error to cover lines 487-488."""
+        config_path = create_test_config(tmp_path)
+        
+        # Mock AWS clients
+        mock_session_instance = MagicMock()
+        mock_session.return_value = mock_session_instance
+        
+        mock_agentcore_client = MagicMock()
+        mock_client_class.return_value = mock_agentcore_client
+        
+        mock_ecr_client = MagicMock()
+        mock_codebuild_client = MagicMock()
+        mock_iam_client = MagicMock()
+        mock_control_client = MagicMock()
+        
+        mock_session_instance.client.side_effect = lambda service, **kwargs: {
+            "ecr": mock_ecr_client,
+            "codebuild": mock_codebuild_client,
+            "iam": mock_iam_client,
+            "bedrock-agentcore-control": mock_control_client,
+        }[service]
+        
+        # Mock IAM role deletion with AccessDenied error (non-NoSuchEntity) - covers lines 487-488
+        mock_iam_client.list_attached_role_policies.return_value = {"AttachedPolicies": []}
+        mock_iam_client.list_role_policies.return_value = {"PolicyNames": []}
+        mock_iam_client.delete_role.side_effect = ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "Access denied for role deletion"}},
+            "DeleteRole"
+        )
+        
+        # Mock other operations to skip
+        mock_agentcore_client.get_agent_runtime_endpoint.side_effect = ClientError(
+            {"Error": {"Code": "ResourceNotFoundException", "Message": "Not found"}},
+            "GetAgentRuntimeEndpoint"
+        )
+        mock_ecr_client.list_images.return_value = {"imageIds": []}
+        mock_codebuild_client.delete_project.return_value = {}
+        
+        result = destroy_bedrock_agentcore(config_path, dry_run=False)
+        
+        assert isinstance(result, DestroyResult)
+        
+        # Verify line 487-488: warning for non-NoSuchEntity IAM error
+        iam_warnings = [w for w in result.warnings if "Failed to delete IAM role" in w and "AccessDenied" in w]
+        assert len(iam_warnings) >= 1
+
     def test_delete_ecr_repository_success(self, tmp_path):
         """Test successful ECR repository deletion."""
         from bedrock_agentcore_starter_toolkit.operations.runtime.destroy import _delete_ecr_repository
